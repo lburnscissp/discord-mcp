@@ -30,8 +30,18 @@ from typing import Annotated, Literal, Optional
 
 from pydantic import Field
 
-from discord_mcp.client import encode_emoji, request
-from discord_mcp.formatting import ResponseFormat, envelope, fmt_time, render_message_md, render_messages_md, slim_message, to_json, user_label
+from discord_mcp.client import DiscordError, encode_emoji, guild_for_channel, request
+from discord_mcp.formatting import (
+    ResponseFormat,
+    envelope,
+    fmt_time,
+    jump_link,
+    render_message_md,
+    render_messages_md,
+    slim_message,
+    to_json,
+    user_label,
+)
 from discord_mcp.tools._common import DESTRUCTIVE, JSON, MD, READ, UPDATE, WRITE, Fmt, OptSnowflake, Reason, Snowflake, mcp, tool_errors
 
 MAX_CONTENT = 2000
@@ -165,8 +175,14 @@ async def discord_send_message(
         # post it as a normal message rather than erroring out.
         body["message_reference"] = {"message_id": reply_to, "fail_if_not_exists": False}
     m = await request("POST", f"/channels/{channel_id}/messages", json=body)
-    guild = m.get("guild_id") or "@me"
-    return f"Sent message {m['id']} in {channel_id}. https://discord.com/channels/{guild}/{channel_id}/{m['id']}"
+    # The message is already posted. Resolving the guild for the jump link must never be
+    # able to turn that success into an error — if the lookup fails, give a link that
+    # still opens rather than reporting a failed send.
+    try:
+        guild = await guild_for_channel(channel_id)
+    except DiscordError:
+        guild = None
+    return f"Sent message {m['id']} in {channel_id}. {jump_link(guild, channel_id, m['id'])}"
 
 
 @mcp.tool(name="discord_edit_message", annotations=UPDATE)
@@ -256,4 +272,8 @@ async def discord_send_dm(
     dm = await request("POST", "/users/@me/channels", json={"recipient_id": user_id})
     m = await request("POST", f"/channels/{dm['id']}/messages", json={"content": content, "allowed_mentions": {"parse": []}})
     recipient = next(iter(dm.get("recipients", [])), {"id": user_id})
-    return f"Sent DM {m['id']} to {user_label(recipient)} (DM channel {dm['id']})."
+    # A DM has no guild, so "@me" is the correct link segment here.
+    return (
+        f"Sent DM {m['id']} to {user_label(recipient)} (DM channel {dm['id']}). "
+        f"{jump_link(None, dm['id'], m['id'])}"
+    )

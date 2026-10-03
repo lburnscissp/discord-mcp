@@ -77,7 +77,8 @@ async def test_search_messages_paginates_and_filters(api):
 
 
 async def test_send_message_suppresses_pings_by_default(api):
-    route = api.post(f"/channels/{CHANNEL}/messages").mock(return_value=httpx.Response(200, json=msg(guild_id=GUILD)))
+    api.get(f"/channels/{CHANNEL}").mock(return_value=httpx.Response(200, json={"id": CHANNEL, "type": 0, "guild_id": GUILD}))
+    route = api.post(f"/channels/{CHANNEL}/messages").mock(return_value=httpx.Response(200, json=msg()))
     out = await call("discord_send_message", channel_id=CHANNEL, content="hi @everyone", reply_to=MSG)
     body = json.loads(route.calls[0].request.content)
     assert body["allowed_mentions"]["parse"] == []
@@ -250,3 +251,42 @@ async def test_json_includes_stickers(api):
     ]))
     items = json.loads(await call("discord_read_messages", channel_id=CHANNEL, response_format="json"))["items"]
     assert items[0]["stickers"] == [{"id": "9", "name": "Wave"}]
+
+
+async def test_jump_link_resolves_the_guild_and_caches_it(api):
+    """REST message objects carry no guild_id, so the link needs a channel lookup — once."""
+    channel = api.get(f"/channels/{CHANNEL}").mock(
+        return_value=httpx.Response(200, json={"id": CHANNEL, "type": 0, "guild_id": GUILD})
+    )
+    api.post(f"/channels/{CHANNEL}/messages").mock(return_value=httpx.Response(200, json=msg()))
+
+    first = await call("discord_send_message", channel_id=CHANNEL, content="one")
+    second = await call("discord_send_message", channel_id=CHANNEL, content="two")
+
+    assert f"/channels/{GUILD}/{CHANNEL}/{MSG}" in first
+    assert f"/channels/{GUILD}/{CHANNEL}/{MSG}" in second
+    assert "@me" not in first
+    assert channel.call_count == 1, "the channel→guild mapping should be cached"
+
+
+async def test_jump_link_uses_at_me_for_a_dm_channel(api):
+    api.get(f"/channels/{CHANNEL}").mock(return_value=httpx.Response(200, json={"id": CHANNEL, "type": 1}))
+    api.post(f"/channels/{CHANNEL}/messages").mock(return_value=httpx.Response(200, json=msg()))
+    out = await call("discord_send_message", channel_id=CHANNEL, content="hi")
+    assert f"/channels/@me/{CHANNEL}/{MSG}" in out
+
+
+async def test_failed_guild_lookup_still_reports_the_send_as_sent(api):
+    """The message is already posted — a link lookup failing must not read as a failure."""
+    api.get(f"/channels/{CHANNEL}").mock(return_value=httpx.Response(403, json={"code": 50001, "message": "Missing Access"}))
+    api.post(f"/channels/{CHANNEL}/messages").mock(return_value=httpx.Response(200, json=msg()))
+    out = await call("discord_send_message", channel_id=CHANNEL, content="hi")
+    assert out.startswith("Sent message")
+    assert "Error" not in out
+
+
+async def test_send_dm_links_to_the_dm(api):
+    api.post("/users/@me/channels").mock(return_value=httpx.Response(200, json={"id": "777777777777777777", "recipients": [{"id": USER, "username": "tester"}]}))
+    api.post("/channels/777777777777777777/messages").mock(return_value=httpx.Response(200, json=msg()))
+    out = await call("discord_send_dm", user_id=USER, content="psst")
+    assert f"/channels/@me/777777777777777777/{MSG}" in out

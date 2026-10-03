@@ -37,8 +37,10 @@ def env(monkeypatch):
     monkeypatch.setenv("DISCORD_GUILD_ID", GUILD)
     # force a fresh httpx client per test so respx intercepts it
     client._client = None
+    client._channel_guild_cache.clear()
     yield
     client._client = None
+    client._channel_guild_cache.clear()
 
 
 @pytest.fixture

@@ -315,6 +315,25 @@ async def request(
     raise DiscordError("Rate limited repeatedly. Wait a minute and retry.")
 
 
+# channel_id -> guild_id (or None for a DM channel). Messages returned by the REST API do
+# not include guild_id — only gateway events do — but building a jump link needs it. A
+# channel cannot move between servers, so this is safe to cache for the life of the
+# process and costs one extra request per channel, once.
+_channel_guild_cache: dict[str, str | None] = {}
+
+
+async def guild_for_channel(channel_id: str) -> str | None:
+    """Return the server ID a channel belongs to, or None if it is a DM.
+
+    Cached. Callers that already have a `guild_id` from somewhere should use that instead
+    of calling this.
+    """
+    if channel_id not in _channel_guild_cache:
+        channel = await request("GET", f"/channels/{channel_id}")
+        _channel_guild_cache[channel_id] = channel.get("guild_id")
+    return _channel_guild_cache[channel_id]
+
+
 async def paginate(
     path: str,
     *,

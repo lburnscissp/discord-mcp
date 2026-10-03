@@ -352,6 +352,17 @@ def slim_guild(g: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
+def jump_link(guild_id: str | None, channel_id: str, message_id: str) -> str:
+    """Build a clickable Discord URL for one message.
+
+    Discord's URL shape is /channels/<guild or @me>/<channel>/<message>. The literal
+    "@me" is the correct segment for a DM; using it for a guild message produces a link
+    that opens but lands in the wrong place, so `guild_id` is worth resolving properly
+    (see client.guild_for_channel).
+    """
+    return f"https://discord.com/channels/{guild_id or '@me'}/{channel_id}/{message_id}"
+
+
 def md_table(headers: list[str], rows: list[list[Any]]) -> str:
     head = "| " + " | ".join(headers) + " |"
     sep = "|" + "|".join("---" for _ in headers) + "|"
