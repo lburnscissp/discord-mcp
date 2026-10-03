@@ -119,6 +119,17 @@ def is_system_message(m: dict[str, Any]) -> bool:
     return m.get("type", 0) not in CONTENT_MESSAGE_TYPES
 
 
+# Fields that can carry a message's whole payload while `content` stays empty. A
+# sticker-only or poll-only message is perfectly normal and must not be mistaken for a
+# blocked intent — getting this wrong turns a working setup into a bug report.
+VISIBLE_PAYLOAD_FIELDS = ("attachments", "embeds", "sticker_items", "poll", "components")
+
+
+def has_visible_payload(m: dict[str, Any]) -> bool:
+    """True when something renders even though there is no text."""
+    return any(m.get(f) for f in VISIBLE_PAYLOAD_FIELDS)
+
+
 def empty_content_note(m: dict[str, Any]) -> str:
     """Explain why a message has no text, instead of leaving the reader guessing.
 
@@ -126,7 +137,7 @@ def empty_content_note(m: dict[str, Any]) -> str:
     least one person hunting for a bug that wasn't there:
 
       * a system notice (someone joined) — never had text;
-      * a message that really is just an image or a link embed;
+      * a message that really is just an image, a link embed, a sticker or a poll;
       * **the Message Content Intent is disabled**, in which case Discord blanks the text,
         the attachments and the embeds all at once, with no error anywhere.
 
@@ -136,9 +147,12 @@ def empty_content_note(m: dict[str, Any]) -> str:
     if is_system_message(m):
         label = SYSTEM_MESSAGE_LABELS.get(m.get("type", 0), MESSAGE_TYPES.get(m.get("type", 0), "system message"))
         return f"_(system: {label})_"
-    if not (m.get("attachments") or m.get("embeds")):
-        return "_(no text, no attachments — the bot's Message Content Intent is probably disabled; see README troubleshooting)_"
-    return "_(no text — see attachments/embeds below)_"
+    if not has_visible_payload(m):
+        return (
+            "_(no text and nothing attached — the bot's Message Content Intent is probably "
+            "disabled; see README troubleshooting)_"
+        )
+    return "_(no text — see the attachments below)_"
 
 
 class ResponseFormat(str, Enum):
@@ -235,6 +249,14 @@ def slim_message(m: dict[str, Any]) -> dict[str, Any]:
         out["attachments"] = [{"filename": a.get("filename"), "url": a.get("url"), "size": a.get("size")} for a in m["attachments"]]
     if m.get("embeds"):
         out["embeds"] = [{"title": e.get("title"), "description": e.get("description"), "url": e.get("url")} for e in m["embeds"]]
+    if m.get("sticker_items"):
+        out["stickers"] = [{"id": st.get("id"), "name": st.get("name")} for st in m["sticker_items"]]
+    if m.get("poll"):
+        poll = m["poll"]
+        out["poll"] = {
+            "question": (poll.get("question") or {}).get("text"),
+            "answers": [(a.get("poll_media") or {}).get("text") for a in poll.get("answers", [])],
+        }
     if m.get("reactions"):
         out["reactions"] = [{"emoji": r["emoji"].get("name"), "count": r.get("count")} for r in m["reactions"]]
     ref = m.get("message_reference")
@@ -259,6 +281,12 @@ def render_message_md(m: dict[str, Any]) -> str:
     for e in m.get("embeds") or []:
         title = e.get("title") or e.get("url") or "embed"
         lines.append(f"  🔗 {title}" + (f": {e.get('description')[:200]}" if e.get("description") else ""))
+    for st in m.get("sticker_items") or []:
+        lines.append(f"  🏷️ sticker: {st.get('name')}")
+    if m.get("poll"):
+        q = (m["poll"].get("question") or {}).get("text") or "poll"
+        options = ", ".join((a.get("poll_media") or {}).get("text") or "?" for a in m["poll"].get("answers", []))
+        lines.append(f"  📊 poll: {q}" + (f" — {options}" if options else ""))
     if m.get("reactions"):
         lines.append("  " + "  ".join(f"{r['emoji'].get('name')} {r.get('count')}" for r in m["reactions"]))
     return "\n".join(lines)

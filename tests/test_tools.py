@@ -220,3 +220,33 @@ async def test_json_exposes_message_type_and_system_flag(api):
     ]))
     items = json.loads(await call("discord_read_messages", channel_id=CHANNEL, response_format="json"))["items"]
     assert [(i["type"], i["system"]) for i in items] == [("user_join", True), ("default", False)]
+
+
+async def test_sticker_only_message_is_not_blamed_on_the_intent(api):
+    """A sticker reply has no content by nature — this was a real false positive."""
+    api.get(f"/channels/{CHANNEL}/messages").mock(return_value=httpx.Response(200, json=[
+        msg("1", "", type=19, sticker_items=[{"id": "749054660769218631", "name": "Wave", "format_type": 3}]),
+    ]))
+    out = await call("discord_read_messages", channel_id=CHANNEL)
+    assert "sticker: Wave" in out
+    assert "Message Content Intent" not in out
+
+
+async def test_poll_is_rendered_and_not_treated_as_empty(api):
+    api.get(f"/channels/{CHANNEL}/messages").mock(return_value=httpx.Response(200, json=[
+        msg("1", "", type=0, poll={
+            "question": {"text": "Long or short?"},
+            "answers": [{"poll_media": {"text": "Long"}}, {"poll_media": {"text": "Short"}}],
+        }),
+    ]))
+    out = await call("discord_read_messages", channel_id=CHANNEL)
+    assert "poll: Long or short?" in out and "Long, Short" in out
+    assert "Message Content Intent" not in out
+
+
+async def test_json_includes_stickers(api):
+    api.get(f"/channels/{CHANNEL}/messages").mock(return_value=httpx.Response(200, json=[
+        msg("1", "", type=19, sticker_items=[{"id": "9", "name": "Wave"}]),
+    ]))
+    items = json.loads(await call("discord_read_messages", channel_id=CHANNEL, response_format="json"))["items"]
+    assert items[0]["stickers"] == [{"id": "9", "name": "Wave"}]
