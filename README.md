@@ -1,5 +1,9 @@
 # discord-mcp
 
+[![tests](https://github.com/lburnscissp/discord-mcp/actions/workflows/test.yml/badge.svg)](https://github.com/lburnscissp/discord-mcp/actions/workflows/test.yml)
+[![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-blue)](https://www.python.org/downloads/)
+[![MIT licence](https://img.shields.io/badge/licence-MIT-green)](LICENSE)
+
 An [MCP](https://modelcontextprotocol.io) server that lets Claude — or any MCP client —
 operate a Discord bot. Read channels, search history, post and reply, manage channels,
 threads and roles, moderate members, and read the audit log.
