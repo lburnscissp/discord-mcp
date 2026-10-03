@@ -1,4 +1,28 @@
-"""Message tools: read, search, send, edit, delete, react, pin, DM."""
+"""Reading and writing messages — the heart of the server.
+
+Four things about Discord shape this module:
+
+1. **Message Content is a privileged intent.** Unless it is switched on for the bot in the
+   developer portal, Discord returns messages with `content` as an empty string — no
+   error, just blank text. It applies to the HTTP API, not only to gateway events, so
+   this affects every read tool here. If someone reports "all the messages are empty",
+   that is always the cause.
+
+2. **Bots cannot use Discord's search.** The `/guilds/{id}/messages/search` endpoint is
+   available to user accounts only. `discord_search_messages` therefore pages backwards
+   through history (100 messages per call, capped by `max_scan`) and filters locally.
+   It is honest about what it scanned so the model can decide whether to look further.
+
+3. **Mentions are opt-in here.** Discord pings whoever a message mentions unless the
+   request says otherwise. Since the text often comes from a model, `discord_send_message`
+   sends `allowed_mentions: {parse: []}` by default — a stray `@everyone` in generated
+   copy then renders as plain text instead of notifying the whole server. Passing
+   `allow_mentions=true` is a deliberate act.
+
+4. **A bot can only edit its own messages.** It can *delete* other people's (with Manage
+   Messages), but editing is restricted, which is why `discord_edit_message` says so in
+   its description rather than letting the model discover it through a 50005 error.
+"""
 
 from __future__ import annotations
 
@@ -22,7 +46,9 @@ def _render(messages: list[dict], fmt: ResponseFormat, title: str, *, limit: int
     if fmt == JSON:
         return to_json(envelope([slim_message(m) for m in messages], limit=limit, cursor=cursor))
     footer = f"_Older messages: pass before=`{cursor}`._" if messages and len(messages) >= limit else ""
-    # Discord returns newest first; humans read top-down oldest→newest.
+    # Discord returns messages newest-first. A model summarising a conversation reads it
+    # far better oldest-first, the way the channel actually looked, so flip it for the
+    # Markdown view. JSON keeps Discord's order, since callers there may rely on it.
     return render_messages_md(title, reversed(messages), footer)
 
 
@@ -130,9 +156,13 @@ async def discord_send_message(
     """
     body: dict = {
         "content": content,
+        # An empty `parse` list is what makes mentions inert: @everyone in the text still
+        # renders, but nobody is notified. See the module docstring.
         "allowed_mentions": {"parse": ["users", "roles", "everyone"] if allow_mentions else [], "replied_user": mention_reply_author},
     }
     if reply_to:
+        # fail_if_not_exists=False: if the message being replied to was deleted meanwhile,
+        # post it as a normal message rather than erroring out.
         body["message_reference"] = {"message_id": reply_to, "fail_if_not_exists": False}
     m = await request("POST", f"/channels/{channel_id}/messages", json=body)
     guild = m.get("guild_id") or "@me"
@@ -221,6 +251,8 @@ async def discord_send_dm(
 
     Returns: Confirmation with the DM channel ID (reuse it with discord_read_messages to see replies).
     """
+    # DMs need a channel first. This endpoint is idempotent — calling it again for the
+    # same user returns the existing DM channel rather than creating a second one.
     dm = await request("POST", "/users/@me/channels", json={"recipient_id": user_id})
     m = await request("POST", f"/channels/{dm['id']}/messages", json={"content": content, "allowed_mentions": {"parse": []}})
     recipient = next(iter(dm.get("recipients", [])), {"id": user_id})

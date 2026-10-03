@@ -16,3 +16,8 @@ wheels/
 *credentials*
 *secrets*
 .DS_Store
+
+# test and tooling caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/

@@ -1,4 +1,17 @@
-"""Role tools: list, create, edit, delete."""
+"""The roles themselves — create, recolour, re-permission, delete.
+
+Permissions are a **bitfield**, passed as a decimal string (Discord uses strings because
+the value exceeds what JavaScript can hold in a number). `"8"` is Administrator; a
+read-and-write-messages role is the sum of several bits. The tools take the string as-is
+rather than offering named flags: inventing a second vocabulary for 50-odd permissions
+would be more to get wrong than to look up. Discord's table:
+https://discord.com/developers/docs/topics/permissions
+
+Colours are accepted as familiar hex (`"#5865F2"`) and converted to the integer Discord
+wants. New roles always land at the bottom of the hierarchy; ordering them is a separate
+endpoint this server does not wrap, because dragging them in the UI is easier than
+describing positions to a model.
+"""
 
 from __future__ import annotations
 

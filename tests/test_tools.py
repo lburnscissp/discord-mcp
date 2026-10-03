@@ -1,4 +1,15 @@
-"""Tool-level tests: call through MCPServer so schemas, validation and formatting are all exercised."""
+"""Tests that drive the tools the way a client does.
+
+Every test goes through `mcp.call_tool(name, args)` rather than importing the Python
+function directly. That means each one also exercises the generated JSON schema and
+Pydantic validation — a bad argument pattern or a renamed field fails here, not in
+someone's editor three weeks later.
+
+`test_tool_inventory` is the structural guard: it asserts the tool count, that every tool
+has a description and annotations, and that no tool's schema is nested under a `params`
+object (the mistake described in tools/_common.py). Adding a tool means updating the
+expected count, which is intentional — it makes the inventory a deliberate decision.
+"""
 
 import json
 
@@ -10,6 +21,7 @@ from tests.conftest import CHANNEL, GUILD, MSG, ROLE, USER, msg
 
 
 async def call(tool: str, **args) -> str:
+    """Call a tool by name and return its text, as a client would receive it."""
     result = await mcp.call_tool(tool, args)
     return "".join(getattr(b, "text", "") for b in result.content)
 

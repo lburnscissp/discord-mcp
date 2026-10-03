@@ -1,4 +1,17 @@
-"""Member tools: find people, inspect them, assign roles."""
+"""Finding people in a server and changing what they can do.
+
+Two tools overlap deliberately:
+
+* `discord_search_members` — prefix search on username or nickname. Works with no special
+  setup, and is the right default for turning "James" into a user ID.
+* `discord_list_members` — walks the whole member list in join order. Needs the **Server
+  Members** privileged intent enabled in the developer portal; without it Discord answers
+  403 Missing Access, which the error mapping explains.
+
+Role assignment has a rule that trips everyone once: a bot can only grant or remove roles
+positioned **below its own highest role**. The permission check passes and Discord still
+refuses with 50013. If that happens, drag the bot's role higher in Server Settings → Roles.
+"""
 
 from __future__ import annotations
 
@@ -25,6 +38,11 @@ def _members_md(title: str, members: list[dict], roles_by_id: dict[str, str], fo
 
 
 async def _role_names(gid: str) -> dict[str, str]:
+    """Map role ID -> name, so member listings can show "Moderator" not a snowflake.
+
+    Costs one extra request per call. Worth it: a list of raw role IDs is unreadable to a
+    person and useless to a model that would then have to look each one up.
+    """
     return {r["id"]: r["name"] for r in await request("GET", f"/guilds/{gid}/roles")}
 
 

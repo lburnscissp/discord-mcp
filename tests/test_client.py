@@ -1,3 +1,10 @@
+"""Tests for the HTTP layer: auth, error translation, retries, helpers.
+
+These are the tests that protect users from confusing failures. Each one pins down a
+promise the README makes — that a missing token says so plainly, that a 403 explains
+which permission to grant, that a rate limit is waited out rather than thrown.
+"""
+
 import httpx
 import pytest
 

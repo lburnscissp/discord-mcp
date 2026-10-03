@@ -1,4 +1,12 @@
-"""Server-level tools: who am I, which servers, server details."""
+"""Server-level tools: who the bot is, which servers it can see, details of one.
+
+Start here when nothing works. `discord_whoami` is the cheapest possible check that the
+token is valid, and `discord_list_guilds` answers the question people are most often
+surprised by: **a bot can only see servers it has been invited to.** There is no way to
+point it at an arbitrary server from the outside — someone with Manage Server has to add
+it. (Driving a human account instead, a "self-bot", violates Discord's terms of service
+and will get the account banned. Don't.)
+"""
 
 from __future__ import annotations
 

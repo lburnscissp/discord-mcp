@@ -1,4 +1,25 @@
-"""Shared formatting: snowflake timestamps, Markdown/JSON renderers, pagination envelopes."""
+"""Turning Discord's JSON into something a language model reads well.
+
+Two output shapes, one job
+-------------------------
+Every read tool takes `response_format`:
+
+  * **markdown** (default) — compact, human-shaped prose and tables. Timestamps are
+    rendered as readable UTC, IDs are shown next to names so the model can use them in a
+    follow-up call, and noisy metadata is dropped. This is what you want when the answer
+    is going to be summarised or shown to a person.
+  * **json** — the full structured object, for when the model needs to filter, count or
+    feed the data into something else.
+
+Why the `slim_*` functions exist
+--------------------------------
+A single Discord message object is ~40 fields deep once you include the author, member,
+attachments, embeds, reactions, mentions and flags. Twenty-five of those in a tool
+response is thousands of tokens of mostly-null noise, and context is the scarcest
+resource an agent has. Each `slim_*` keeps the fields that answer real questions and
+drops the rest. If you add a tool and find yourself needing a dropped field, add it to
+the relevant `slim_*` rather than returning the raw object.
+"""
 
 from __future__ import annotations
 
@@ -7,8 +28,14 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Iterable
 
+# Discord's epoch: 2015-01-01T00:00:00Z in milliseconds. Snowflake IDs count from here
+# rather than from the Unix epoch, which is why `snowflake_time` adds it back.
 DISCORD_EPOCH_MS = 1420070400000
 
+# Discord sends channel kinds as integers. These names are ours (they match Discord's
+# documented constants, lowercased) and appear in both tool arguments and output, so a
+# model can say type="forum" instead of type=15.
+# The gaps in the numbering are Discord's: 6-9 were removed over the years.
 CHANNEL_TYPES: dict[int, str] = {
     0: "text",
     1: "dm",
@@ -24,6 +51,7 @@ CHANNEL_TYPES: dict[int, str] = {
     15: "forum",
     16: "media",
 }
+# Reverse map, for turning a tool argument back into the integer Discord wants.
 CHANNEL_TYPE_IDS: dict[str, int] = {v: k for k, v in CHANNEL_TYPES.items()}
 
 
@@ -33,7 +61,13 @@ class ResponseFormat(str, Enum):
 
 
 def snowflake_time(snowflake: str | int) -> datetime:
-    """Every Discord ID encodes its creation time."""
+    """Extract the creation time baked into any Discord ID.
+
+    Discord IDs ("snowflakes") are 64-bit integers whose top 42 bits are a millisecond
+    timestamp. That means *every* object — message, channel, server, user — tells you when
+    it was created without an extra API call, and that IDs sort chronologically. This is
+    also why cursor pagination works on IDs (see `client.paginate`).
+    """
     ms = (int(snowflake) >> 22) + DISCORD_EPOCH_MS
     return datetime.fromtimestamp(ms / 1000, tz=timezone.utc)
 
@@ -51,10 +85,15 @@ def to_json(data: Any) -> str:
 
 
 def envelope(items: list[Any], *, limit: int, cursor: str | None, cursor_name: str = "before") -> dict[str, Any]:
-    """Pagination metadata shared by every list tool.
+    """Wrap a page of results with the metadata needed to ask for the next one.
 
-    Discord paginates by snowflake cursor, not offset, so we return the next cursor
-    the caller should pass and whether more is likely.
+    Discord paginates by cursor, not offset, so "page 3" is not a thing you can request —
+    you can only continue from the last ID you saw. The envelope therefore reports the
+    cursor to pass next (`next_before` / `next_after`) rather than an offset.
+
+    `has_more` is a best guess: a full page usually means more exist, but a page that is
+    exactly the last page also looks full. Following the cursor once more costs one call
+    and settles it, which is cheaper than Discord offering a total count (it doesn't).
     """
     return {
         "count": len(items),

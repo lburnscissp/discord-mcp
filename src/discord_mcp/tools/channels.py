@@ -1,4 +1,19 @@
-"""Channel and thread tools: list, inspect, create, edit, delete."""
+"""Channels, categories and threads.
+
+Things worth knowing before changing this module:
+
+* **A category is a channel.** Discord models categories as channel type 4, with real
+  channels pointing at them via `parent_id`. That is why one listing covers both and why
+  `discord_create_channel` can make either.
+* **A thread is also a channel**, of type 10/11/12. Threads take the same IDs, the same
+  message tools and the same `discord_edit_channel` — archiving and locking are just
+  fields on it. Post into a thread by passing the thread's ID as `channel_id`.
+* **Threads are listed separately** (`discord_list_threads`) because Discord does not
+  include them in a server's channel list, and only *active* (unarchived) threads are
+  returned by the endpoint we use.
+* **Deleting is instant and total.** `discord_delete_channel` takes every message with it
+  and there is no undo, which is why it carries the DESTRUCTIVE annotation.
+"""
 
 from __future__ import annotations
 
@@ -15,7 +30,9 @@ CreatableKind = Literal["text", "voice", "category", "announcement", "forum", "s
 
 
 def _channel_rows(channels: list[dict]) -> str:
-    # Group by category so the listing reads like Discord's sidebar.
+    """Render channels as a table, naming each one's category instead of its parent ID."""
+    # Categories arrive in the same list as the channels that point at them, so we can
+    # resolve parent_id -> name without another API call.
     by_id = {c["id"]: c for c in channels}
     channels = sorted(channels, key=lambda c: (c.get("position", 0), c["id"]))
     rows = []

@@ -1,4 +1,23 @@
-"""Moderation tools: timeout, kick, ban, bulk delete, audit log."""
+"""Moderation — the tools that affect people, and the log of who used them.
+
+Escalation, mildest first:
+
+* **timeout** — the member stays but cannot post, react or speak in voice. Reversible by
+  setting `minutes=0`, and expires on its own. Discord caps it at 28 days. This is the
+  right tool for "they need to cool off".
+* **kick** — removes them from the server; they can rejoin with any invite.
+* **ban** — removes them and blocks rejoining until unbanned. Optionally deletes their
+  recent messages (Discord takes seconds, this takes days and converts).
+
+Every tool here takes a `reason` that Discord writes into the server's audit log, so the
+record shows *why* an action was taken and that it came from the bot. Always pass one.
+
+`discord_get_audit_log` reads that record back, which makes it the tool for "who deleted
+that channel?" — Discord's log is the only place that answer exists.
+
+Bulk delete has a hard limitation worth knowing: **Discord refuses messages older than 14
+days**, and refuses batches smaller than 2. Older messages must be deleted one at a time.
+"""
 
 from __future__ import annotations
 
@@ -42,6 +61,8 @@ async def discord_timeout_member(
     Returns: Confirmation with the time the timeout ends.
     """
     gid = require_guild(guild_id)
+    # Discord takes an absolute ISO-8601 timestamp, not a duration, so convert. None
+    # clears an existing timeout — which is why minutes=0 is the documented way to lift one.
     until = (datetime.now(timezone.utc) + timedelta(minutes=minutes)).isoformat() if minutes else None
     await request("PATCH", f"/guilds/{gid}/members/{user_id}", json={"communication_disabled_until": until}, reason=reason)
     if not until:
@@ -78,6 +99,7 @@ async def discord_ban_member(
     Returns: Confirmation.
     """
     gid = require_guild(guild_id)
+    # Discord's field is in seconds (max 604800 = 7 days); days are friendlier to ask for.
     await request("PUT", f"/guilds/{gid}/bans/{user_id}", json={"delete_message_seconds": delete_message_days * 86400}, reason=reason)
     extra = f", deleted their messages from the last {delete_message_days} day(s)" if delete_message_days else ""
     return f"Banned user {user_id}{extra}."
@@ -125,7 +147,9 @@ async def discord_bulk_delete_messages(
 
     Returns: Confirmation with the count deleted.
     """
-    ids = list(dict.fromkeys(message_ids))  # Discord rejects duplicates
+    # dict.fromkeys dedupes while preserving order — Discord rejects the whole batch if
+    # the same ID appears twice.
+    ids = list(dict.fromkeys(message_ids))
     if len(ids) < 2:
         return "Error: need at least 2 distinct message IDs; use discord_delete_message for one."
     await request("POST", f"/channels/{channel_id}/messages/bulk-delete", json={"messages": ids}, reason=reason)
