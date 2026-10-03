@@ -152,7 +152,7 @@ def empty_content_note(m: dict[str, Any]) -> str:
             "_(no text and nothing attached — the bot's Message Content Intent is probably "
             "disabled; see README troubleshooting)_"
         )
-    return "_(no text — see the attachments below)_"
+    return "_(no text — see below)_"
 
 
 class ResponseFormat(str, Enum):
