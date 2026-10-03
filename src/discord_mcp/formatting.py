@@ -55,6 +55,92 @@ CHANNEL_TYPES: dict[int, str] = {
 CHANNEL_TYPE_IDS: dict[str, int] = {v: k for k, v in CHANNEL_TYPES.items()}
 
 
+# Discord message "types". Most are system notices Discord posts on your behalf — someone
+# joined, a channel was renamed, a message was pinned — and they legitimately carry no
+# text. Only the types in CONTENT_MESSAGE_TYPES are things a person actually wrote.
+# Distinguishing them matters: three join notices in a channel should not look like three
+# empty messages. Full list:
+# https://discord.com/developers/docs/resources/message#message-object-message-types
+MESSAGE_TYPES: dict[int, str] = {
+    0: "default",
+    1: "recipient_add",
+    2: "recipient_remove",
+    3: "call",
+    4: "channel_name_change",
+    5: "channel_icon_change",
+    6: "channel_pinned_message",
+    7: "user_join",
+    8: "guild_boost",
+    9: "guild_boost_tier_1",
+    10: "guild_boost_tier_2",
+    11: "guild_boost_tier_3",
+    12: "channel_follow_add",
+    18: "thread_created",
+    19: "reply",
+    20: "chat_input_command",
+    21: "thread_starter_message",
+    22: "guild_invite_reminder",
+    23: "context_menu_command",
+    24: "auto_moderation_action",
+    25: "role_subscription_purchase",
+    31: "guild_incident_alert_mode_enabled",
+    32: "guild_incident_alert_mode_disabled",
+    46: "poll_result",
+}
+
+# Message types whose text was typed by a human (or a bot acting like one).
+CONTENT_MESSAGE_TYPES = frozenset({0, 19, 20, 21, 23})
+
+# Human-readable renderings for the system notices people actually see in a channel.
+SYSTEM_MESSAGE_LABELS: dict[int, str] = {
+    6: "pinned a message to this channel",
+    7: "joined the server",
+    8: "boosted the server",
+    9: "boosted the server (tier 1)",
+    10: "boosted the server (tier 2)",
+    11: "boosted the server (tier 3)",
+    12: "followed another channel into this one",
+    18: "created a thread",
+    4: "changed the channel name",
+    5: "changed the channel icon",
+    22: "invite reminder",
+    24: "message blocked by AutoMod",
+    25: "purchased a role subscription",
+    46: "poll ended",
+}
+
+
+def is_system_message(m: dict[str, Any]) -> bool:
+    """True when Discord generated this message, not a person.
+
+    System messages have no `content` by design, so they must be told apart from a real
+    message whose text is missing — which usually means the Message Content Intent is off.
+    """
+    return m.get("type", 0) not in CONTENT_MESSAGE_TYPES
+
+
+def empty_content_note(m: dict[str, Any]) -> str:
+    """Explain why a message has no text, instead of leaving the reader guessing.
+
+    Three different situations produce an empty `content`, and conflating them sent at
+    least one person hunting for a bug that wasn't there:
+
+      * a system notice (someone joined) — never had text;
+      * a message that really is just an image or a link embed;
+      * **the Message Content Intent is disabled**, in which case Discord blanks the text,
+        the attachments and the embeds all at once, with no error anywhere.
+
+    The third is the common setup mistake, so when a human-authored message arrives with
+    nothing in it at all, say so plainly rather than reporting it as an empty message.
+    """
+    if is_system_message(m):
+        label = SYSTEM_MESSAGE_LABELS.get(m.get("type", 0), MESSAGE_TYPES.get(m.get("type", 0), "system message"))
+        return f"_(system: {label})_"
+    if not (m.get("attachments") or m.get("embeds")):
+        return "_(no text, no attachments — the bot's Message Content Intent is probably disabled; see README troubleshooting)_"
+    return "_(no text — see attachments/embeds below)_"
+
+
 class ResponseFormat(str, Enum):
     MARKDOWN = "markdown"
     JSON = "json"
@@ -131,6 +217,9 @@ def slim_message(m: dict[str, Any]) -> dict[str, Any]:
     out: dict[str, Any] = {
         "id": m.get("id"),
         "channel_id": m.get("channel_id"),
+        # A caller filtering for real conversation wants to drop the join notices.
+        "type": MESSAGE_TYPES.get(m.get("type", 0), m.get("type")),
+        "system": is_system_message(m),
         "author": {
             "id": m.get("author", {}).get("id"),
             "username": m.get("author", {}).get("username"),
@@ -164,7 +253,7 @@ def render_message_md(m: dict[str, Any]) -> str:
     if m.get("pinned"):
         lines[0] += " · 📌"
     content = m.get("content") or ""
-    lines.append(content if content else "_(no text — see attachments/embeds)_")
+    lines.append(content if content else empty_content_note(m))
     for a in m.get("attachments") or []:
         lines.append(f"  📎 {a.get('filename')} — {a.get('url')}")
     for e in m.get("embeds") or []:

@@ -240,7 +240,8 @@ startup.
 |---|---|
 | `Error: Invalid bot token` | Wrong or stale token. Reset it in the portal (**Bot → Reset Token**) and update `.env`. Note it's the *bot* token, not the client secret. |
 | `Error: DISCORD_BOT_TOKEN is not set` | No `.env`, or the file is somewhere else. It must sit next to `pyproject.toml`. The server walks up from its own location to find it — the client's working directory doesn't matter. |
-| Every message's text is empty | **Message Content Intent** is off. Portal → Bot → Privileged Gateway Intents → enable → Save, then restart the client. |
+| Every message's text is empty | **Message Content Intent** is off — Discord blanks text, attachments and embeds together, with no error. Portal → Bot → Privileged Gateway Intents → enable → **Save Changes**. Takes effect on the next call; no re-invite needed. The read tools say so when they spot it. |
+| Messages shown as `(system: joined the server)` | Not an error — those are Discord's own join/pin/boost notices, which never have text. Real messages appear alongside them. |
 | `Error: Missing access` (50001) | The bot isn't in that server, or can't see that channel. Check channel-level permission overrides, not just the role. |
 | `Error: Missing permissions` (50013) | The role lacks the permission. For *role* changes, also check hierarchy: a bot can't touch a role positioned above its own. Drag its role higher in **Server Settings → Roles**. |
 | `Error: Missing access` on `discord_list_members` | **Server Members Intent** is off. Or use `discord_search_members`, which doesn't need it. |

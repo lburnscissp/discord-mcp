@@ -29,7 +29,7 @@ async def call(tool: str, **args) -> str:
 async def test_tool_inventory():
     tools = await mcp.list_tools()
     names = {t.name for t in tools}
-    assert len(names) == 35
+    assert len(names) == 35  # bump deliberately when adding a tool; see docs/adding-a-tool.md
     assert all(n.startswith("discord_") for n in names)
     for t in tools:
         assert t.description, f"{t.name} has no description"
@@ -185,3 +185,38 @@ async def test_missing_access_hint(api):
     api.get(f"/guilds/{GUILD}/members").mock(return_value=httpx.Response(403, json={"code": 50001, "message": "Missing Access"}))
     out = await call("discord_list_members")
     assert out.startswith("Error: Missing access")
+
+
+async def test_system_messages_are_labelled_not_reported_as_empty(api):
+    """A join notice has no text by design — it must not look like a missing message."""
+    api.get(f"/channels/{CHANNEL}/messages").mock(return_value=httpx.Response(200, json=[
+        msg("1", "", type=7),  # USER_JOIN
+    ]))
+    out = await call("discord_read_messages", channel_id=CHANNEL)
+    assert "system: joined the server" in out
+    assert "Message Content Intent" not in out  # not a misconfiguration
+
+
+async def test_blank_human_message_blames_the_intent(api):
+    """An empty reply with no attachments is the signature of the intent being off."""
+    api.get(f"/channels/{CHANNEL}/messages").mock(return_value=httpx.Response(200, json=[
+        msg("1", "", type=19),  # REPLY, but Discord blanked everything
+    ]))
+    out = await call("discord_read_messages", channel_id=CHANNEL)
+    assert "Message Content Intent is probably disabled" in out
+
+
+async def test_attachment_only_message_is_not_blamed_on_the_intent(api):
+    api.get(f"/channels/{CHANNEL}/messages").mock(return_value=httpx.Response(200, json=[
+        msg("1", "", type=0, attachments=[{"filename": "chart.png", "url": "https://x/chart.png", "size": 1}]),
+    ]))
+    out = await call("discord_read_messages", channel_id=CHANNEL)
+    assert "chart.png" in out and "Message Content Intent" not in out
+
+
+async def test_json_exposes_message_type_and_system_flag(api):
+    api.get(f"/channels/{CHANNEL}/messages").mock(return_value=httpx.Response(200, json=[
+        msg("1", "", type=7), msg("2", "real text", type=0),
+    ]))
+    items = json.loads(await call("discord_read_messages", channel_id=CHANNEL, response_format="json"))["items"]
+    assert [(i["type"], i["system"]) for i in items] == [("user_join", True), ("default", False)]
